@@ -1,0 +1,7 @@
+[Unit]
+Description=InputLeap Reconnect Check
+PartOf=inputleap.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/systemctl --user restart inputleap.service

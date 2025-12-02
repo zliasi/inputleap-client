@@ -1,0 +1,14 @@
+[Unit]
+Description=InputLeap Client
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=YOUR_USERNAME
+ExecStart=/usr/bin/input-leapc -f 192.0.2.1
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

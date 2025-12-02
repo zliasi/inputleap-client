@@ -1,0 +1,11 @@
+[Unit]
+Description=InputLeap Reconnect Timer
+Requires=inputleap.service
+
+[Timer]
+OnBootSec=10s
+OnUnitActiveSec=30s
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target
