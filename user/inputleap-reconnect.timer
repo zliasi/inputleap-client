@@ -1,9 +1,9 @@
 [Unit]
 Description=InputLeap Reconnect Timer
-Requires=inputleap.service
+After=inputleap.service
 
 [Timer]
-OnBootSec=10s
+OnStartupSec=10s
 OnUnitActiveSec=30s
 AccuracySec=1s
 

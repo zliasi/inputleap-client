@@ -1,7 +1,7 @@
 [Unit]
 Description=InputLeap Reconnect Check
-PartOf=inputleap.service
 
 [Service]
 Type=oneshot
+ExecCondition=/usr/bin/bash -c "! systemctl is-active --quiet inputleap.service"
 ExecStart=/usr/bin/systemctl restart inputleap.service

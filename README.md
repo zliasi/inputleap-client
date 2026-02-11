@@ -1,91 +1,91 @@
-# InputLeap Client Automation
+# inputleap-client
 
-Systemd service and timer for automatically connecting to an InputLeap server on boot and reconnecting if the connection drops.
+Systemd service and timer for automatically connecting to an InputLeap server.
 
-## Features
+`inputleap-client` manages an `input-leapc` process *via* systemd, handling startup,
+crash recovery, and periodic reconnection when the server disappears. It supports
+both system-wide and user-level installations.
 
-- Auto-connects to InputLeap server on boot
-- Periodically reconnects every 30 seconds (handles server disappearing/reappearing)
-- Auto-restarts if connection crashes
-- Survives system reboots
-- Works with system-wide or user-level installation
+The reconnect timer uses a health-check (`ExecCondition`) so it only restarts the
+service when it is actually down, leaving healthy connections untouched.
 
-## Directory Structure
+## Installation
 
-- `system/`: System-level services (runs at boot, no login needed, requires sudo)
-- `user/`: User-level services (runs on user login, requires user session)
+Clone or download the repository:
 
-## Quick Install
-
-### Option 1: Automated (Recommended)
-
-```bash
-sudo ./install.sh
+```
+$ git clone https://github.com/zliasi/inputleap-client.git
+$ cd inputleap-client
 ```
 
-This will prompt for:
-- Username to run InputLeap as (must exist on system)
-- Server IP address
-- Whether to install system-wide or user-level
+`input-leapc` must already be installed and available in `$PATH`.
 
-### Option 2: Manual Installation
+### Interactive
 
-**System-wide (survives reboots, runs immediately):**
+Prompts for username, server address, and install type:
 
-```bash
-sudo cp system/*.service system/*.timer /etc/systemd/system/
-sudo sed -i 's/User=YOUR_USERNAME/User=<USERNAME>/g' /etc/systemd/system/inputleap.service
-sudo sed -i 's/192.0.2.1/<SERVER_IP>/g' /etc/systemd/system/inputleap.service
-sudo systemctl daemon-reload
-sudo systemctl enable inputleap.service inputleap-reconnect.timer
-sudo systemctl start inputleap.service inputleap-reconnect.timer
+```
+$ sudo ./install.sh
 ```
 
-**User-level (runs on login):**
+### Non-interactive
 
-```bash
-mkdir -p ~/.config/systemd/user
-cp user/*.service user/*.timer ~/.config/systemd/user/
-sed -i 's/192.0.2.1/<SERVER_IP>/g' ~/.config/systemd/user/inputleap.service
-systemctl --user daemon-reload
-systemctl --user enable inputleap.service inputleap-reconnect.timer
-systemctl --user start inputleap.service inputleap-reconnect.timer
+```
+$ sudo ./install.sh --user john --server 10.0.0.1 --system
+$ sudo ./install.sh --user john --server myhost:24800 --user-level
 ```
 
-## Configuration
+Flags:
 
-Edit the service file to change:
-- `ExecStart` path if InputLeap is in a different location
-- `192.0.2.1` to your actual server IP
-- `RestartSec` if you want faster/slower auto-restart on crash
-- `OnUnitActiveSec` in timer if you want different reconnection interval
-
-## Status and Logs
-
-**System-wide:**
-```bash
-sudo systemctl status inputleap.service
-sudo systemctl list-timers
-sudo journalctl -u inputleap -f
+```
+--user USERNAME     Username to run InputLeap as
+--server ADDRESS    Server address (IP, hostname, or host:port)
+--system            Install system-wide (default)
+--user-level        Install as user-level service
+--uninstall         Remove installed services
+--dry-run           Print rendered unit files without installing
+--help              Show help
 ```
 
-**User-level:**
-```bash
-systemctl --user status inputleap.service
-systemctl --user list-timers
-journalctl --user-unit inputleap -f
+## Dry run
+
+Write the rendered unit files to stdout instead of installing:
+
+```
+$ sudo ./install.sh --user john --server 10.0.0.1 --dry-run
 ```
 
-## Stop/Disable
+## Uninstall
 
-**System-wide:**
-```bash
-sudo systemctl stop inputleap.service inputleap-reconnect.timer
-sudo systemctl disable inputleap.service inputleap-reconnect.timer
+```
+$ sudo ./install.sh --user john --uninstall --system
+$ sudo ./install.sh --user john --uninstall --user-level
 ```
 
-**User-level:**
-```bash
-systemctl --user stop inputleap.service inputleap-reconnect.timer
-systemctl --user disable inputleap.service inputleap-reconnect.timer
+Stops, disables, and removes all unit files, then reloads the systemd daemon.
+
+## Directory structure
+
+- `system/`: System-level unit templates (runs at boot, no login needed)
+- `user/`: User-level unit templates (runs on user login)
+
+Both directories contain template files with `BINARY_PATH` and `SERVER_ADDRESS`
+placeholders that the installer replaces at install time.
+
+## Status and logs
+
+System-wide:
+
+```
+$ sudo systemctl status inputleap.service
+$ sudo systemctl list-timers
+$ sudo journalctl -u inputleap -f
+```
+
+User-level:
+
+```
+$ systemctl --user status inputleap.service
+$ systemctl --user list-timers
+$ journalctl --user-unit inputleap -f
 ```
