@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Install/uninstall InputLeap systemd service and timer for automatic
+# Install/uninstall Input Leap systemd service and timer for automatic
 # connection management.
 #
-# Configures InputLeap client to auto-connect to server on boot and
+# Configures Input Leap client to auto-connect to server on boot and
 # periodically reconnect if connection drops. Supports both system-wide
 # and user-level installations, interactive and non-interactive modes.
 #
@@ -35,10 +35,10 @@ print_usage() {
   cat <<'EOF'
 Usage: sudo ./install.sh [OPTIONS]
 
-Install or uninstall InputLeap client systemd services.
+Install or uninstall Input Leap client systemd services.
 
 Options:
-  --user USERNAME     Username to run InputLeap as
+  --user USERNAME     Username to run Input Leap as
   --server ADDRESS    Server address (IP, hostname, or host:port)
   --system            Install system-wide (default)
   --user-level        Install as user-level service
@@ -140,7 +140,7 @@ get_home_dir() {
 #   0 - Always succeeds
 get_username() {
   local username_input
-  read -rp "Enter username to run InputLeap as: " username_input
+  read -rp "Enter username to run Input Leap as: " username_input
   echo "${username_input}"
 }
 
@@ -736,7 +736,7 @@ main() {
         "${server_address}" "${binary_path}"
       start_user_services "${username}"
     fi
-    echo "InputLeap installed successfully"
+    echo "Input Leap installed successfully"
     return 0
   fi
 
@@ -789,7 +789,7 @@ main() {
       "${server_address}" "${binary_path}"
     start_user_services "${username}"
   fi
-  echo "InputLeap installed successfully"
+  echo "Input Leap installed successfully"
 }
 
 main "$@"

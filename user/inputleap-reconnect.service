@@ -1,5 +1,5 @@
 [Unit]
-Description=InputLeap Reconnect Check
+Description=Input Leap Reconnect Check
 
 [Service]
 Type=oneshot

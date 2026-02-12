@@ -1,8 +1,8 @@
 # inputleap-client
 
-Systemd service and timer for automatically connecting to an InputLeap server.
+systemd service and timer for automatically connecting to an Input Leap server.
 
-`inputleap-client` manages an `input-leapc` process *via* systemd, handling startup,
+`inputleap-client` manages an [`input-leapc`](https://github.com/input-leap/input-leap) process *via* systemd, handling startup,
 crash recovery, and periodic reconnection when the server disappears. It supports
 both system-wide and user-level installations.
 
@@ -18,7 +18,7 @@ $ git clone https://github.com/zliasi/inputleap-client.git
 $ cd inputleap-client
 ```
 
-`input-leapc` must already be installed and available in `$PATH`.
+[`input-leapc`](https://github.com/input-leap/input-leap) must already be installed and available in `$PATH`.
 
 ### Interactive
 
@@ -38,7 +38,7 @@ $ sudo ./install.sh --user john --server myhost:24800 --user-level
 Flags:
 
 ```
---user USERNAME     Username to run InputLeap as
+--user USERNAME     Username to run Input Leap as
 --server ADDRESS    Server address (IP, hostname, or host:port)
 --system            Install system-wide (default)
 --user-level        Install as user-level service
