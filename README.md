@@ -2,7 +2,7 @@
 
 systemd service and timer for automatically connecting to an Input Leap server.
 
-`inputleap-client` manages an [`input-leapc`](https://github.com/input-leap/input-leap) process *via* systemd, handling startup,
+`inputleap-client` manages an [`input-leapc`](https://github.com/input-leap/input-leap) process via systemd, handling startup,
 crash recovery, and periodic reconnection when the server disappears. It supports
 both system-wide and user-level installations.
 
