@@ -6,6 +6,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 ExecStart=BINARY_PATH -f SERVER_ADDRESS
+ExecStartPost=/bin/bash -c 'sleep 2 && setxkbmap -device $(xinput list --id-only "Virtual core XTEST keyboard") -layout KEYBOARD_LAYOUT'
 Restart=always
 RestartSec=5
 

@@ -32,6 +32,7 @@ $ sudo ./install.sh
 
 ```
 $ sudo ./install.sh --user john --server 10.0.0.1 --system
+$ sudo ./install.sh --user john --server 10.0.0.1 --layout dk --system
 $ sudo ./install.sh --user john --server myhost:24800 --user-level
 ```
 
@@ -40,6 +41,7 @@ Flags:
 ```
 --user USERNAME     Username to run Input Leap as
 --server ADDRESS    Server address (IP, hostname, or host:port)
+--layout LAYOUT     Keyboard layout for XTEST virtual keyboard (e.g. dk, us)
 --system            Install system-wide (default)
 --user-level        Install as user-level service
 --uninstall         Remove installed services
@@ -71,6 +73,15 @@ Stops, disables, and removes all unit files, then reloads the systemd daemon.
 
 Both directories contain template files with `BINARY_PATH` and `SERVER_ADDRESS`
 placeholders that the installer replaces at install time.
+
+## Keyboard layout fix
+
+When an Input Leap server runs on Windows and the client runs on Linux, the
+XTEST virtual keyboard that Input Leap injects keystrokes through may default
+to the wrong layout. The `--layout` flag applies the correct layout to this
+virtual keyboard after the client starts.
+
+Requires `xinput` and `setxkbmap` on the client machine.
 
 ## Status and logs
 

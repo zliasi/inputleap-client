@@ -40,6 +40,7 @@ Install or uninstall Input Leap client systemd services.
 Options:
   --user USERNAME     Username to run Input Leap as
   --server ADDRESS    Server address (IP, hostname, or host:port)
+  --layout LAYOUT     Keyboard layout for XTEST virtual keyboard (e.g. dk, us)
   --system            Install system-wide (default)
   --user-level        Install as user-level service
   --uninstall         Remove installed services
@@ -51,6 +52,7 @@ Interactive mode (no flags):
 
 Non-interactive examples:
   sudo ./install.sh --user john --server 10.0.0.1 --system
+  sudo ./install.sh --user john --server 10.0.0.1 --layout dk --system
   sudo ./install.sh --user john --server myhost:24800 --user-level
   sudo ./install.sh --user john --uninstall --system
   sudo ./install.sh --user john --server 10.0.0.1 --dry-run
@@ -159,6 +161,71 @@ get_server_address() {
   read -rp "Enter server address (IP, hostname, or host:port): " \
     address_input
   echo "${address_input}"
+}
+
+# Validates that keyboard layout dependencies are available
+#
+# Arguments:
+#   None
+#
+# Returns:
+#   Nothing
+#
+# Exit codes:
+#   0 - All dependencies found
+#   1 - Missing dependency
+check_keyboard_deps() {
+  command -v xinput &>/dev/null || {
+    echo "Error: xinput not found (install xinput)" >&2
+    return 1
+  }
+  command -v setxkbmap &>/dev/null || {
+    echo "Error: setxkbmap not found (install x11-xkb-utils)" >&2
+    return 1
+  }
+}
+
+# Validates keyboard layout against system-known layouts
+#
+# Arguments:
+#   $1 - layout: X11 keyboard layout code (e.g. "dk", "us", "de")
+#
+# Returns:
+#   Nothing
+#
+# Exit codes:
+#   0 - Valid layout
+#   1 - Empty or unrecognised layout
+validate_keyboard_layout() {
+  local layout="$1"
+
+  [[ -z "${layout}" ]] && {
+    echo "Error: Keyboard layout cannot be empty" >&2
+    return 1
+  }
+
+  localectl list-x11-keymap-layouts 2>/dev/null |
+    grep -qx "${layout}" || {
+    echo "Error: Unknown keyboard layout: ${layout}" >&2
+    return 1
+  }
+}
+
+# Prompts user for optional keyboard layout
+#
+# Arguments:
+#   None
+#
+# Returns:
+#   Layout string, or empty string if skipped
+#
+# Exit codes:
+#   0 - Always succeeds
+get_keyboard_layout() {
+  local layout_input
+  read -rp "Keyboard layout to apply (leave empty to skip): " \
+    layout_input
+  echo "${layout_input}"
 }
 
 # Validates individual IP octets are in range 0-255
@@ -331,6 +398,7 @@ detect_existing_install() {
 #   $2 - binary_path: Absolute path to input-leapc
 #   $3 - server_address: Server address string
 #   $4 - username: System username (only used for system service)
+#   $5 - layout: Keyboard layout code (optional, empty to skip)
 #
 # Returns:
 #   Rendered unit file content
@@ -343,6 +411,7 @@ render_unit_file() {
   local binary_path="$2"
   local server_address="${3:-}"
   local username="${4:-}"
+  local layout="${5:-}"
 
   [[ -f "${template_path}" ]] || {
     echo "Error: Template not found: ${template_path}" >&2
@@ -358,6 +427,15 @@ render_unit_file() {
     content="${content//YOUR_USERNAME/${username}}"
   fi
 
+  if [[ -n "${layout}" ]]; then
+    content="${content//KEYBOARD_LAYOUT/${layout}}"
+  else
+    local filtered
+    filtered="$(echo "${content}" | grep -v "KEYBOARD_LAYOUT" |
+      grep -v "Environment=DISPLAY")"
+    content="${filtered}"
+  fi
+
   echo "${content}"
 }
 
@@ -368,6 +446,7 @@ render_unit_file() {
 #   $2 - username: System username
 #   $3 - server_address: Server address string
 #   $4 - binary_path: Absolute path to input-leapc
+#   $5 - layout: Keyboard layout code (optional)
 #
 # Returns:
 #   Nothing
@@ -379,12 +458,14 @@ install_system_wide() {
   local username="$2"
   local server_address="$3"
   local binary_path="$4"
+  local layout="${5:-}"
 
   echo "Installing to ${SYSTEM_UNIT_DIR}"
 
   render_unit_file \
     "${source_dir}/inputleap.service" \
-    "${binary_path}" "${server_address}" "${username}" |
+    "${binary_path}" "${server_address}" "${username}" \
+    "${layout}" |
     install -m 644 /dev/stdin \
       "${SYSTEM_UNIT_DIR}/inputleap.service"
 
@@ -404,6 +485,7 @@ install_system_wide() {
 #   $2 - username: System username
 #   $3 - server_address: Server address string
 #   $4 - binary_path: Absolute path to input-leapc
+#   $5 - layout: Keyboard layout code (optional)
 #
 # Returns:
 #   Nothing
@@ -415,6 +497,7 @@ install_user_level() {
   local username="$2"
   local server_address="$3"
   local binary_path="$4"
+  local layout="${5:-}"
   local home_dir
   home_dir="$(get_home_dir "${username}")"
   local dest_dir="${home_dir}/.config/systemd/user"
@@ -424,7 +507,7 @@ install_user_level() {
 
   render_unit_file \
     "${source_dir}/inputleap.service" \
-    "${binary_path}" "${server_address}" |
+    "${binary_path}" "${server_address}" "" "${layout}" |
     install -m 644 /dev/stdin \
       "${dest_dir}/inputleap.service"
 
@@ -578,8 +661,8 @@ uninstall_user_level() {
 #   $@ - Command-line arguments
 #
 # Returns:
-#   Sets global variables: ARG_USER, ARG_SERVER, ARG_INSTALL_TYPE,
-#   ARG_UNINSTALL, ARG_DRY_RUN, ARG_HELP
+#   Sets global variables: ARG_USER, ARG_SERVER, ARG_LAYOUT,
+#   ARG_INSTALL_TYPE, ARG_UNINSTALL, ARG_DRY_RUN, ARG_HELP
 #
 # Exit codes:
 #   0 - Success
@@ -587,6 +670,7 @@ uninstall_user_level() {
 parse_args() {
   ARG_USER=""
   ARG_SERVER=""
+  ARG_LAYOUT=""
   ARG_INSTALL_TYPE=""
   ARG_UNINSTALL=false
   ARG_DRY_RUN=false
@@ -608,6 +692,14 @@ parse_args() {
           return 1
         }
         ARG_SERVER="$2"
+        shift 2
+        ;;
+      --layout)
+        [[ $# -ge 2 ]] || {
+          echo "Error: --layout requires a value" >&2
+          return 1
+        }
+        ARG_LAYOUT="$2"
         shift 2
         ;;
       --system)
@@ -647,6 +739,7 @@ parse_args() {
 #   $3 - server_address: Server address string
 #   $4 - username: System username
 #   $5 - install_type: "system" or "user"
+#   $6 - layout: Keyboard layout code (optional)
 #
 # Returns:
 #   Rendered unit file contents
@@ -659,6 +752,7 @@ run_dry_run() {
   local server_address="$3"
   local username="$4"
   local install_type="$5"
+  local layout="${6:-}"
 
   for unit_file in "${UNIT_FILES[@]}"; do
     echo "--- ${unit_file} ---"
@@ -666,11 +760,12 @@ run_dry_run() {
       "${install_type}" == "system" ]]; then
       render_unit_file \
         "${source_dir}/${unit_file}" \
-        "${binary_path}" "${server_address}" "${username}"
+        "${binary_path}" "${server_address}" "${username}" \
+        "${layout}"
     elif [[ "${unit_file}" == "inputleap.service" ]]; then
       render_unit_file \
         "${source_dir}/${unit_file}" \
-        "${binary_path}" "${server_address}"
+        "${binary_path}" "${server_address}" "" "${layout}"
     else
       render_unit_file \
         "${source_dir}/${unit_file}" "${binary_path}"
@@ -702,11 +797,12 @@ main() {
 
   local username="${ARG_USER}"
   local server_address="${ARG_SERVER}"
+  local layout="${ARG_LAYOUT}"
   local install_type="${ARG_INSTALL_TYPE}"
   local has_flags=false
 
   if [[ -n "${username}" || -n "${server_address}" ||
-    -n "${install_type}" ||
+    -n "${layout}" || -n "${install_type}" ||
     "${ARG_UNINSTALL}" == "true" ||
     "${ARG_DRY_RUN}" == "true" ]]; then
     has_flags=true
@@ -717,6 +813,11 @@ main() {
     validate_username "${username}"
     server_address="$(get_server_address)"
     validate_server_address "${server_address}"
+    layout="$(get_keyboard_layout)"
+    if [[ -n "${layout}" ]]; then
+      check_keyboard_deps
+      validate_keyboard_layout "${layout}"
+    fi
     install_type="$(get_install_type)"
 
     local binary_path
@@ -728,12 +829,12 @@ main() {
     if [[ "${install_type}" == "system" ]]; then
       install_system_wide \
         "${source_dir}" "${username}" \
-        "${server_address}" "${binary_path}"
+        "${server_address}" "${binary_path}" "${layout}"
       start_system_services
     else
       install_user_level \
         "${source_dir}" "${username}" \
-        "${server_address}" "${binary_path}"
+        "${server_address}" "${binary_path}" "${layout}"
       start_user_services "${username}"
     fi
     echo "Input Leap installed successfully"
@@ -745,6 +846,11 @@ main() {
     return 1
   fi
   validate_username "${username}"
+
+  if [[ -n "${layout}" ]]; then
+    check_keyboard_deps
+    validate_keyboard_layout "${layout}"
+  fi
 
   if [[ -z "${install_type}" ]]; then
     install_type="system"
@@ -772,7 +878,8 @@ main() {
   if [[ "${ARG_DRY_RUN}" == "true" ]]; then
     run_dry_run \
       "${source_dir}" "${binary_path}" \
-      "${server_address}" "${username}" "${install_type}"
+      "${server_address}" "${username}" "${install_type}" \
+      "${layout}"
     return 0
   fi
 
@@ -781,12 +888,12 @@ main() {
   if [[ "${install_type}" == "system" ]]; then
     install_system_wide \
       "${source_dir}" "${username}" \
-      "${server_address}" "${binary_path}"
+      "${server_address}" "${binary_path}" "${layout}"
     start_system_services
   else
     install_user_level \
       "${source_dir}" "${username}" \
-      "${server_address}" "${binary_path}"
+      "${server_address}" "${binary_path}" "${layout}"
     start_user_services "${username}"
   fi
   echo "Input Leap installed successfully"
