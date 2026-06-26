@@ -1,0 +1,13 @@
+[Unit]
+Description=Input Leap Screen Enter Hook
+After=inputleap.service
+
+[Service]
+Type=simple
+Environment=DISPLAY=:0
+ExecStart=/bin/bash -c 'journalctl --user -f -u inputleap.service --output=cat | grep --line-buffered "entering screen" | while read -r _; do RESET_SCRIPT_PATH; done'
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

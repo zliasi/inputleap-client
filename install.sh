@@ -14,11 +14,13 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly SCRIPT_DIR
 readonly SYSTEM_UNIT_DIR="/etc/systemd/system"
+readonly RESET_SCRIPT_PATH="/usr/local/bin/inputleap-reset-modifiers"
 
 readonly UNIT_FILES=(
   "inputleap.service"
   "inputleap-reconnect.service"
   "inputleap-reconnect.timer"
+  "inputleap-screen-enter.service"
 )
 
 # Prints usage information
@@ -43,6 +45,7 @@ Options:
   --layout LAYOUT     Keyboard layout for XTEST virtual keyboard (e.g. dk, us)
   --system            Install system-wide (default)
   --user-level        Install as user-level service
+  --enable-crypto     Enable TLS (disabled by default)
   --uninstall         Remove installed services
   --dry-run           Print rendered unit files without installing
   --help              Show this help message
@@ -398,7 +401,9 @@ detect_existing_install() {
 #   $2 - binary_path: Absolute path to input-leapc
 #   $3 - server_address: Server address string
 #   $4 - username: System username (only used for system service)
-#   $5 - layout: Keyboard layout code (optional, empty to skip)
+#   $5 - reset_script_path: Absolute path to the modifier reset script
+#   $6 - crypto_flag: "--disable-crypto" or empty string
+#   $7 - layout: Keyboard layout code (optional, empty to skip)
 #
 # Returns:
 #   Rendered unit file content
@@ -411,7 +416,9 @@ render_unit_file() {
   local binary_path="$2"
   local server_address="${3:-}"
   local username="${4:-}"
-  local layout="${5:-}"
+  local reset_script_path="${5:-}"
+  local crypto_flag="${6:-}"
+  local layout="${7:-}"
 
   [[ -f "${template_path}" ]] || {
     echo "Error: Template not found: ${template_path}" >&2
@@ -422,6 +429,8 @@ render_unit_file() {
   content="$(<"${template_path}")"
   content="${content//BINARY_PATH/${binary_path}}"
   content="${content//SERVER_ADDRESS/${server_address}}"
+  content="${content//RESET_SCRIPT_PATH/${reset_script_path}}"
+  content="${content//CRYPTO_FLAG/${crypto_flag}}"
 
   if [[ -n "${username}" ]]; then
     content="${content//YOUR_USERNAME/${username}}"
@@ -439,6 +448,25 @@ render_unit_file() {
   echo "${content}"
 }
 
+# Installs the modifier reset script to the system bin directory
+#
+# Arguments:
+#   None
+#
+# Returns:
+#   Nothing
+#
+# Exit codes:
+#   0 - Success
+#   1 - Script source not found
+install_reset_script() {
+  [[ -f "${SCRIPT_DIR}/reset-modifiers.py" ]] || {
+    echo "Error: reset-modifiers.py not found in ${SCRIPT_DIR}" >&2
+    return 1
+  }
+  install -m 755 "${SCRIPT_DIR}/reset-modifiers.py" "${RESET_SCRIPT_PATH}"
+}
+
 # Installs service files for system-wide setup
 #
 # Arguments:
@@ -446,7 +474,8 @@ render_unit_file() {
 #   $2 - username: System username
 #   $3 - server_address: Server address string
 #   $4 - binary_path: Absolute path to input-leapc
-#   $5 - layout: Keyboard layout code (optional)
+#   $5 - crypto_flag: "--disable-crypto" or empty string
+#   $6 - layout: Keyboard layout code (optional)
 #
 # Returns:
 #   Nothing
@@ -458,14 +487,15 @@ install_system_wide() {
   local username="$2"
   local server_address="$3"
   local binary_path="$4"
-  local layout="${5:-}"
+  local crypto_flag="${5:-}"
+  local layout="${6:-}"
 
   echo "Installing to ${SYSTEM_UNIT_DIR}"
 
   render_unit_file \
     "${source_dir}/inputleap.service" \
-    "${binary_path}" "${server_address}" "${username}" \
-    "${layout}" |
+    "${binary_path}" "${server_address}" "${username}" "" \
+    "${crypto_flag}" "${layout}" |
     install -m 644 /dev/stdin \
       "${SYSTEM_UNIT_DIR}/inputleap.service"
 
@@ -476,6 +506,14 @@ install_system_wide() {
       install -m 644 /dev/stdin \
         "${SYSTEM_UNIT_DIR}/${unit_file}"
   done
+
+  install_reset_script
+
+  render_unit_file \
+    "${source_dir}/inputleap-screen-enter.service" \
+    "" "" "${username}" "${RESET_SCRIPT_PATH}" |
+    install -m 644 /dev/stdin \
+      "${SYSTEM_UNIT_DIR}/inputleap-screen-enter.service"
 }
 
 # Installs service files for user-level setup
@@ -485,7 +523,8 @@ install_system_wide() {
 #   $2 - username: System username
 #   $3 - server_address: Server address string
 #   $4 - binary_path: Absolute path to input-leapc
-#   $5 - layout: Keyboard layout code (optional)
+#   $5 - crypto_flag: "--disable-crypto" or empty string
+#   $6 - layout: Keyboard layout code (optional)
 #
 # Returns:
 #   Nothing
@@ -497,7 +536,8 @@ install_user_level() {
   local username="$2"
   local server_address="$3"
   local binary_path="$4"
-  local layout="${5:-}"
+  local crypto_flag="${5:-}"
+  local layout="${6:-}"
   local home_dir
   home_dir="$(get_home_dir "${username}")"
   local dest_dir="${home_dir}/.config/systemd/user"
@@ -507,7 +547,8 @@ install_user_level() {
 
   render_unit_file \
     "${source_dir}/inputleap.service" \
-    "${binary_path}" "${server_address}" "" "${layout}" |
+    "${binary_path}" "${server_address}" "" "" \
+    "${crypto_flag}" "${layout}" |
     install -m 644 /dev/stdin \
       "${dest_dir}/inputleap.service"
 
@@ -518,6 +559,14 @@ install_user_level() {
       install -m 644 /dev/stdin \
         "${dest_dir}/${unit_file}"
   done
+
+  install_reset_script
+
+  render_unit_file \
+    "${source_dir}/inputleap-screen-enter.service" \
+    "" "" "" "${RESET_SCRIPT_PATH}" |
+    install -m 644 /dev/stdin \
+      "${dest_dir}/inputleap-screen-enter.service"
 
   chown -R "${username}:${username}" "${dest_dir}"
 }
@@ -534,9 +583,11 @@ install_user_level() {
 #   0 - Success
 start_system_services() {
   systemctl daemon-reload
-  systemctl enable inputleap.service inputleap-reconnect.timer
-  systemctl start inputleap.service inputleap-reconnect.timer
-  systemctl status inputleap.service
+  systemctl enable inputleap.service inputleap-reconnect.timer \
+    inputleap-screen-enter.service
+  systemctl start inputleap.service inputleap-reconnect.timer \
+    inputleap-screen-enter.service
+  systemctl status --no-pager inputleap.service
   echo "View logs: journalctl -u inputleap -f"
 }
 
@@ -570,13 +621,15 @@ start_user_services() {
     env "XDG_RUNTIME_DIR=${runtime_dir}" \
     "DBUS_SESSION_BUS_ADDRESS=${dbus_address}" \
     systemctl --user enable \
-    inputleap.service inputleap-reconnect.timer
+    inputleap.service inputleap-reconnect.timer \
+    inputleap-screen-enter.service
 
   sudo -u "${username}" \
     env "XDG_RUNTIME_DIR=${runtime_dir}" \
     "DBUS_SESSION_BUS_ADDRESS=${dbus_address}" \
     systemctl --user start \
-    inputleap.service inputleap-reconnect.timer
+    inputleap.service inputleap-reconnect.timer \
+    inputleap-screen-enter.service
 
   echo "View logs: journalctl --user-unit inputleap -f"
 }
@@ -595,14 +648,17 @@ uninstall_system_wide() {
   echo "Uninstalling system-wide services"
 
   systemctl stop inputleap.service inputleap-reconnect.timer \
+    inputleap-screen-enter.service \
     2>/dev/null || true
   systemctl disable inputleap.service inputleap-reconnect.timer \
+    inputleap-screen-enter.service \
     2>/dev/null || true
 
   for unit_file in "${UNIT_FILES[@]}"; do
     rm -f "${SYSTEM_UNIT_DIR}/${unit_file}"
   done
 
+  rm -f "${RESET_SCRIPT_PATH}"
   systemctl daemon-reload
   echo "System-wide services removed"
 }
@@ -634,6 +690,7 @@ uninstall_user_level() {
     "DBUS_SESSION_BUS_ADDRESS=${dbus_address}" \
     systemctl --user stop \
     inputleap.service inputleap-reconnect.timer \
+    inputleap-screen-enter.service \
     2>/dev/null || true
 
   sudo -u "${username}" \
@@ -641,11 +698,14 @@ uninstall_user_level() {
     "DBUS_SESSION_BUS_ADDRESS=${dbus_address}" \
     systemctl --user disable \
     inputleap.service inputleap-reconnect.timer \
+    inputleap-screen-enter.service \
     2>/dev/null || true
 
   for unit_file in "${UNIT_FILES[@]}"; do
     rm -f "${dest_dir}/${unit_file}"
   done
+
+  rm -f "${RESET_SCRIPT_PATH}"
 
   sudo -u "${username}" \
     env "XDG_RUNTIME_DIR=${runtime_dir}" \
@@ -662,7 +722,7 @@ uninstall_user_level() {
 #
 # Returns:
 #   Sets global variables: ARG_USER, ARG_SERVER, ARG_LAYOUT,
-#   ARG_INSTALL_TYPE, ARG_UNINSTALL, ARG_DRY_RUN, ARG_HELP
+#   ARG_INSTALL_TYPE, ARG_ENABLE_CRYPTO, ARG_UNINSTALL, ARG_DRY_RUN, ARG_HELP
 #
 # Exit codes:
 #   0 - Success
@@ -672,6 +732,7 @@ parse_args() {
   ARG_SERVER=""
   ARG_LAYOUT=""
   ARG_INSTALL_TYPE=""
+  ARG_ENABLE_CRYPTO=false
   ARG_UNINSTALL=false
   ARG_DRY_RUN=false
   ARG_HELP=false
@@ -710,6 +771,10 @@ parse_args() {
         ARG_INSTALL_TYPE="user"
         shift
         ;;
+      --enable-crypto)
+        ARG_ENABLE_CRYPTO=true
+        shift
+        ;;
       --uninstall)
         ARG_UNINSTALL=true
         shift
@@ -739,7 +804,8 @@ parse_args() {
 #   $3 - server_address: Server address string
 #   $4 - username: System username
 #   $5 - install_type: "system" or "user"
-#   $6 - layout: Keyboard layout code (optional)
+#   $6 - crypto_flag: "--disable-crypto" or empty string
+#   $7 - layout: Keyboard layout code (optional)
 #
 # Returns:
 #   Rendered unit file contents
@@ -752,7 +818,8 @@ run_dry_run() {
   local server_address="$3"
   local username="$4"
   local install_type="$5"
-  local layout="${6:-}"
+  local crypto_flag="${6:-}"
+  local layout="${7:-}"
 
   for unit_file in "${UNIT_FILES[@]}"; do
     echo "--- ${unit_file} ---"
@@ -760,15 +827,24 @@ run_dry_run() {
       "${install_type}" == "system" ]]; then
       render_unit_file \
         "${source_dir}/${unit_file}" \
-        "${binary_path}" "${server_address}" "${username}" \
-        "${layout}"
+        "${binary_path}" "${server_address}" "${username}" "" \
+        "${crypto_flag}" "${layout}"
     elif [[ "${unit_file}" == "inputleap.service" ]]; then
       render_unit_file \
         "${source_dir}/${unit_file}" \
-        "${binary_path}" "${server_address}" "" "${layout}"
-    else
+        "${binary_path}" "${server_address}" "" "" \
+        "${crypto_flag}" "${layout}"
+    elif [[ "${unit_file}" == "inputleap-screen-enter.service" &&
+      "${install_type}" == "system" ]]; then
       render_unit_file \
-        "${source_dir}/${unit_file}" "${binary_path}"
+        "${source_dir}/${unit_file}" \
+        "" "" "${username}" "${RESET_SCRIPT_PATH}" ""
+    elif [[ "${unit_file}" == "inputleap-screen-enter.service" ]]; then
+      render_unit_file \
+        "${source_dir}/${unit_file}" \
+        "" "" "" "${RESET_SCRIPT_PATH}" ""
+    else
+      render_unit_file "${source_dir}/${unit_file}" "${binary_path}"
     fi
     echo ""
   done
@@ -799,6 +875,8 @@ main() {
   local server_address="${ARG_SERVER}"
   local layout="${ARG_LAYOUT}"
   local install_type="${ARG_INSTALL_TYPE}"
+  local crypto_flag="--disable-crypto"
+  [[ "${ARG_ENABLE_CRYPTO}" == "true" ]] && crypto_flag=""
   local has_flags=false
 
   if [[ -n "${username}" || -n "${server_address}" ||
@@ -829,12 +907,12 @@ main() {
     if [[ "${install_type}" == "system" ]]; then
       install_system_wide \
         "${source_dir}" "${username}" \
-        "${server_address}" "${binary_path}" "${layout}"
+        "${server_address}" "${binary_path}" "${crypto_flag}" "${layout}"
       start_system_services
     else
       install_user_level \
         "${source_dir}" "${username}" \
-        "${server_address}" "${binary_path}" "${layout}"
+        "${server_address}" "${binary_path}" "${crypto_flag}" "${layout}"
       start_user_services "${username}"
     fi
     echo "Input Leap installed successfully"
@@ -879,7 +957,7 @@ main() {
     run_dry_run \
       "${source_dir}" "${binary_path}" \
       "${server_address}" "${username}" "${install_type}" \
-      "${layout}"
+      "${crypto_flag}" "${layout}"
     return 0
   fi
 
@@ -888,12 +966,12 @@ main() {
   if [[ "${install_type}" == "system" ]]; then
     install_system_wide \
       "${source_dir}" "${username}" \
-      "${server_address}" "${binary_path}" "${layout}"
+      "${server_address}" "${binary_path}" "${crypto_flag}" "${layout}"
     start_system_services
   else
     install_user_level \
       "${source_dir}" "${username}" \
-      "${server_address}" "${binary_path}" "${layout}"
+      "${server_address}" "${binary_path}" "${crypto_flag}" "${layout}"
     start_user_services "${username}"
   fi
   echo "Input Leap installed successfully"
